@@ -222,7 +222,10 @@ def release(commit: str, *, bump: str, repo: Path, remote: str, repository: str,
     if len(body) > GITHUB_BODY_LIMIT:
         raise ReleaseRefused(
             f"the {tag} draft body is {len(body)} characters; GitHub accepts at most "
-            f"{GITHUB_BODY_LIMIT}. Nothing was claimed. Re-run with --no-changelog.")
+            f"{GITHUB_BODY_LIMIT}. Nothing was claimed.\n"
+            "Re-run the release with --no-changelog, then write the changelog by hand:\n"
+            f"    python scripts/release.py changelog --commit {commit} --remote {remote} > changelog.md\n"
+            "Edit changelog.md down in your editor and paste it into the draft release body.")
     claim_epoch = _next_claim_epoch(repo, claims)
     claim = json.dumps({
         "schema": 1,
@@ -487,6 +490,19 @@ def cmd_release(args) -> None:
         published=published_stable_identity(repository), run_wait=RUN_WAIT_SECONDS,
     )
     print(next_steps(result, bold=sys.stdout.isatty() and "NO_COLOR" not in os.environ))
+
+
+def cmd_changelog(args) -> None:
+    """The ``changelog`` subcommand: print the notes the next draft would carry, claiming nothing."""
+    from scripts.releases.versioning import published_stable_identity
+
+    repo, remote, repository = _command_repository(args)
+    commit = _git(repo, "rev-parse", "--verify", f"{args.commit}^{{commit}}")
+    published = published_stable_identity(repository)
+    version = derive_next_version(published=published[0], bump=args.bump)
+    tag = attempt_ref(version, next_attempt(version, _claims(repo, remote)))
+    print(_changelog(repo, repository, commit=commit, tag=tag, version=version,
+                     published=published, no_changelog=False))
 
 
 def _command_repository(args) -> tuple[Path, str, str]:

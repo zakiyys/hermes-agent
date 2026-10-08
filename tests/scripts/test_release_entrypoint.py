@@ -398,8 +398,10 @@ def test_an_oversized_body_is_refused_before_the_claim(source, tmp_path):
 
     commit = _oversized_commit(source, tmp_path)
 
-    with pytest.raises(ReleaseRefused, match="--no-changelog"):
+    with pytest.raises(ReleaseRefused, match="--no-changelog") as refused:
         _release(source, commit, execute=lambda command: pytest.fail(f"must not run {command}"))
+    assert f"python scripts/release.py changelog --commit {commit} --remote origin" in str(refused.value)
+    assert "paste it into the draft release body" in str(refused.value)
 
     # Nothing was claimed, so the attempt is not burned.
     assert git(source, "ls-remote", "origin", "refs/tags/*") == ""
@@ -423,6 +425,29 @@ def test_no_changelog_releases_what_the_full_changelog_could_not(source, tmp_pat
     assert result["tag"] == "rc.1-v0.21.5"
     assert len(seen["body"]) <= GITHUB_BODY_LIMIT
     assert "<!-- HERMES_BUILDS_TABLE -->" in seen["body"]
+
+
+def test_changelog_prints_the_notes_a_draft_would_carry_and_claims_nothing(source, monkeypatch, capsys):
+    from scripts import release as release_script
+    from scripts.releases import entrypoint
+
+    shipped = _advance(source, "fix: shipped in the published release")
+    git(source, "tag", "-a", "v0.21.4", shipped, "-m", "published")
+    commit = _advance(source, "feat: new in this release (#123)")
+    monkeypatch.setattr(release_script, "REPO_ROOT", source)
+    monkeypatch.setattr(release_script, "remote_github_repo", lambda _remote: "example/hermes-agent")
+    monkeypatch.setattr("scripts.releases.versioning.published_stable_identity",
+                        lambda _repository: ("0.21.4", shipped))
+    monkeypatch.setattr(release_script.sys, "argv",
+                        ["release.py", "changelog", "--commit", commit, "--remote", "origin"])
+
+    release_script.main()
+
+    out = capsys.readouterr().out
+    assert out.startswith("# Hermes Agent v0.21.5 (rc.1-v0.21.5)")
+    assert "New in this release" in out
+    assert "hipped in the published release" not in out
+    assert git(source, "ls-remote", "origin", "refs/tags/*") == ""
 
 
 @pytest.mark.parametrize("argv", [
