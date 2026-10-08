@@ -628,6 +628,42 @@ def test_abandon_clears_one_of_two_attempts_a_concurrent_cut_left(source):
         _release(source, _advance(source, "later"), execute=_must_not_execute)
 
 
+def test_a_local_only_attempt_tag_is_not_a_claim(source):
+    commit = git(source, "rev-parse", "HEAD")
+    _claim(source, "0.21.5", commit)
+    git(source, "tag", "-a", "rc.915-v0.21.5", commit, "-m", "claim")
+
+    assert _abandon(source, "0.21.5")["marker"] == "abandoned-rc.1-v0.21.5"
+    result = _release(source, _advance(source, "later"))
+    assert result["tag"] == "rc.2-v0.21.5"
+
+
+def test_a_local_only_tag_of_the_next_attempt_name_is_replaced_by_the_claim(source):
+    commit = git(source, "rev-parse", "HEAD")
+    _claim(source, "0.21.5", commit)
+    _mark(source, "0.21.5")
+    stray = _advance(source, "stray")
+    git(source, "tag", "-a", "rc.2-v0.21.5", stray, "-m", "stray")
+    later = _advance(source, "later")
+
+    assert _release(source, later)["tag"] == "rc.2-v0.21.5"
+
+    remote = git(source, "ls-remote", "origin", "refs/tags/rc.2-v0.21.5^{}").split()[0]
+    assert remote == later
+    assert git(source, "rev-parse", "rc.2-v0.21.5^{commit}") == later
+
+
+def test_a_local_only_marker_of_the_attempt_name_is_replaced_by_the_abandon(source):
+    commit = git(source, "rev-parse", "HEAD")
+    _claim(source, "0.21.5", commit)
+    git(source, "tag", "-a", "abandoned-rc.1-v0.21.5", commit, "-m", "stray")
+
+    assert _abandon(source, "0.21.5")["marker"] == "abandoned-rc.1-v0.21.5"
+
+    assert git(source, "ls-remote", "origin", "refs/tags/abandoned-rc.1-v0.21.5")
+    assert "stray" not in git(source, "tag", "-l", "abandoned-rc.1-v0.21.5", "--format=%(contents)")
+
+
 def _clones(source, tmp_path):
     origin = git(source, "remote", "get-url", "origin")
     clones = []
